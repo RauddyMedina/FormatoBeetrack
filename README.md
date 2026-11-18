@@ -9,12 +9,20 @@ antes de subirlo. Se abre en el navegador, no sube nada a ningún servidor:
 
 1. **Origen → `CD Easy`.** Todo origen de Easy (`CD Easy Tienda`, `CD Easy Opl`,
    `CD Easy Cd`) queda parejo en `CD Easy`. Los `CD Paris` no se tocan.
-2. **MODO → `Solo recogida`,** sólo en los retiros de Paris. Se reconocen por la marca
-   `RETORNO` en el código del ítem —que es como Paris marca sus retornos— o porque el
-   nombre del producto los delata. Los que no, se marcan con el tilde de la lista o
-   pegando el número de guía.
+2. **MODO → `Solo recogida`,** sólo en los retiros de Paris, y se marcan solos.
 3. **Todo en formato texto.** Las celdas salen como Texto y las 38 columnas quedan con
    formato Texto, incluidas CANTIDAD y Bultos, que hela manda como número.
+
+## Cómo se reconoce un retiro de Paris
+
+Paris marca sus retornos con `RETORNO` en la columna SKU (col BE de `BASE DATOS PARIS`),
+pero **esa marca no viaja al archivo de hela**. Lo que sí viaja es el `CODIGO ITEM`: el
+retiro lleva el LINE_ID del retorno —dígitos pelados— y la entrega lleva el código de
+despacho, que siempre empieza con letras (`DD0339…`, `VEV…`).
+
+Medido contra las 1.233 órdenes `RETORNO` de la planilla, sobre las 169 filas de Paris de
+58 descargas de hela: **17 de 17 retiros y 0 de 152 entregas**. Igual quedan los tildes
+por si algún día aparece uno que no cuadre.
 
 ## Cómo está hecho
 
