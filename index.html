@@ -64,14 +64,8 @@
   .regla p { font-size: 13px; color: var(--muted); }
   .regla.e h3 { color: var(--easy); } .regla.p h3 { color: var(--paris); } .regla.t h3 { color: var(--accent); }
 
-  /* Retiros a mano */
-  details.manual { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-  details.manual summary { padding: 13px 16px; cursor: pointer; font-weight: 500; font-size: 14px; }
-  details.manual .cuerpo { padding: 0 16px 16px; }
-  textarea { width: 100%; min-height: 84px; font-family: var(--mono); font-size: 13px; resize: vertical;
-             background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
-  textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 8px; font-weight: 400; }
+  .hint:empty { display: none; }
 
   /* Tarjeta por archivo */
   .archivo { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
@@ -128,6 +122,7 @@
       <span class="sub">o tocá para elegirlos &middot; se procesan en tu equipo, no se sube nada</span>
       <input type="file" id="input" accept=".xlsx" multiple>
     </div>
+    <p class="hint" id="aviso" role="status"></p>
   </section>
 
   <section>
@@ -139,24 +134,13 @@
       </div>
       <div class="regla p">
         <h3>MODO &rarr; Solo recogida</h3>
-        <p>Sólo en los retiros de Paris. Se reconocen por la marca <i>RETORNO</i> del código o por el nombre del producto; los que falten se marcan a mano.</p>
+        <p>Sólo en los retiros de Paris, y se marcan solos: el retiro trae el código del retorno (dígitos pelados) y la entrega el de despacho (<i>DD0339&hellip;</i>, <i>VEV&hellip;</i>).</p>
       </div>
       <div class="regla t">
         <h3>Todo en texto</h3>
         <p>Las celdas salen con formato Texto, incluidas CANTIDAD y Bultos, que hela manda como número.</p>
       </div>
     </div>
-  </section>
-
-  <section>
-    <details class="manual" id="manual">
-      <summary>Retiros de Paris por número <span class="hint" id="manualCuenta"></span></summary>
-      <div class="cuerpo">
-        <textarea id="manualTxt" placeholder="84094321&#10;91717405" aria-label="Números de retiro de Paris"></textarea>
-        <p class="hint">Uno por línea o separados por coma. Sirve para los retiros que el archivo no delata.
-          Queda guardado en este navegador y se aplica a todos los archivos.</p>
-      </div>
-    </details>
   </section>
 
   <section>
@@ -176,11 +160,17 @@
 /* ---------- Reglas ---------- */
 var ORIGEN_EASY = 'CD Easy';
 var MODO_RETIRO = 'Solo recogida';
-// Paris marca sus retiros con RETORNO en la columna del SKU (la misma senal que usan las
-// alertas de bodega). Cuando el retiro lo cargamos nosotros, el producto viaja como
-// 'CAMBIO <producto> (<entrega>)'.
+// Paris marca sus retiros con RETORNO en la col BE de 'BASE DATOS PARIS', pero esa marca
+// NO viaja al archivo de hela. Lo que si viaja es el CODIGO ITEM: el retiro trae el
+// LINE_ID del retorno (digitos pelados) y la entrega trae el codigo de despacho, que
+// siempre empieza con letras (DD0339..., VEV...). Medido contra las 1.233 ordenes
+// RETORNO de la planilla: 17 de 17 retiros y 0 de 152 entregas.
 var RE_RETIRO = /\b(retorno|retiro|devoluci|recogid)/i;
-var RE_CAMBIO_REF = /\bcambio\b.*\(\s*\d{6,}\s*\)\s*$/i;
+
+function esRetiroParis(codigo, producto) {
+  var c = String(codigo).trim();
+  return /^\d+$/.test(c) || c.toUpperCase() === 'RETORNO' || RE_RETIRO.test(producto);
+}
 
 var norm = function (v) {
   return String(v == null ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -194,7 +184,6 @@ var esParis = function (cli, ori) { return /paris/i.test(norm(cli) + ' ' + norm(
 
 /* ---------- Estado ---------- */
 var archivos = [];
-var manuales = new Set();
 
 /* ---------- Lectura ---------- */
 var COLS = ['numero guia', 'nombre item', 'codigo item', 'modo', 'cliente', 'origen'];
@@ -230,15 +219,17 @@ function analizar(datos) {
       out.paris.push({
         fila: i, guia: dato(fila, 'numero guia'), prod: prod, modo: dato(fila, 'modo'),
         celda: ref(i, col['modo']),
-        auto: norm(dato(fila, 'codigo item')) === 'retorno' || RE_RETIRO.test(prod) || RE_CAMBIO_REF.test(prod)
+        auto: esRetiroParis(dato(fila, 'codigo item'), prod)
       });
     }
   }
   return out;
 }
 
+// Lo detectado manda; los dos Set son la correccion a mano, por archivo.
 function marcado(a, r) {
-  return (r.auto || manuales.has(r.guia)) && !a.desmarcados.has(r.guia + '|' + r.fila);
+  var k = r.guia + '|' + r.fila;
+  return (r.auto || a.forzados.has(k)) && !a.desmarcados.has(k);
 }
 
 function cambiosDe(a) {
@@ -452,15 +443,13 @@ function pintar() {
         + '<button class="chica" data-todos="0">Ninguna</button></div>';
       par.querySelector('[data-todos="1"]').onclick = function () {
         a.desmarcados.clear();
-        a.datos.paris.forEach(function (r) { manuales.add(r.guia); });
-        guardarManuales();
+        a.datos.paris.forEach(function (r) { a.forzados.add(r.guia + '|' + r.fila); });
+        pintar();
       };
       par.querySelector('[data-todos="0"]').onclick = function () {
-        a.datos.paris.forEach(function (r) {
-          manuales.delete(r.guia);
-          a.desmarcados.add(r.guia + '|' + r.fila);
-        });
-        guardarManuales();
+        a.forzados.clear();
+        a.datos.paris.forEach(function (r) { a.desmarcados.add(r.guia + '|' + r.fila); });
+        pintar();
       };
       a.datos.paris.forEach(function (r) {
         var lab = document.createElement('label');
@@ -469,9 +458,9 @@ function pintar() {
           + '<span class="prod">' + esc(r.prod || '(sin nombre)') + (r.auto ? ' · detectado' : '') + '</span>';
         lab.querySelector('input').onchange = function (ev) {
           var k = r.guia + '|' + r.fila;
-          if (ev.target.checked) { manuales.add(r.guia); a.desmarcados.delete(k); }
-          else { manuales.delete(r.guia); a.desmarcados.add(k); }
-          guardarManuales();
+          if (ev.target.checked) { a.forzados.add(k); a.desmarcados.delete(k); }
+          else { a.forzados.delete(k); a.desmarcados.add(k); }
+          pintar();
         };
         par.appendChild(lab);
       });
@@ -480,41 +469,25 @@ function pintar() {
   });
 }
 
-/* ---------- Retiros a mano (se recuerdan en este navegador) ---------- */
-var CLAVE = 'formato-beetrack-retiros';
-
-function aplicarManuales(txt) {
-  manuales = new Set(String(txt).split(/[\s,;]+/).map(function (s) { return s.trim(); })
-    .filter(function (s) { return s.length > 0; }));
-  $('manualCuenta').textContent = manuales.size ? '· ' + manuales.size + ' cargados' : '';
-}
-
-function guardarTxt(txt) {
-  try { localStorage.setItem(CLAVE, txt); } catch (e) { /* sin storage: no se recuerda */ }
-}
-
-function guardarManuales() {
-  var txt = Array.from(manuales).join('\n');
-  $('manualTxt').value = txt;
-  aplicarManuales(txt);
-  guardarTxt(txt);
-  pintar();
-}
-
-$('manualTxt').addEventListener('input', function (e) {
-  aplicarManuales(e.target.value);
-  guardarTxt(e.target.value);
-  archivos.forEach(function (a) { a.desmarcados.clear(); });
-  pintar();
-});
-
 /* ---------- Entrada de archivos ---------- */
 function agregar(lista) {
-  var pendientes = lista.filter(function (f) { return /\.xlsx$/i.test(f.name); });
+  // Mismo nombre y mismo tamano = el archivo ya esta en la lista, no se agrega de nuevo.
+  var vistos = {}, repetidos = [];
+  archivos.forEach(function (a) { vistos[a.nombre + '|' + a.tam] = 1; });
+  var pendientes = lista.filter(function (f) {
+    if (!/\.xlsx$/i.test(f.name)) return false;
+    var k = f.name + '|' + f.size;
+    if (vistos[k]) { repetidos.push(f.name); return false; }
+    vistos[k] = 1;
+    return true;
+  });
+  $('aviso').textContent = repetidos.length === 0 ? ''
+    : repetidos.length === 1 ? repetidos[0] + ' ya estaba cargado'
+    : repetidos.length + ' archivos ya estaban cargados';
   var listos = 0;
   if (!pendientes.length) return;
   pendientes.forEach(function (f) {
-    var a = { nombre: f.name, desmarcados: new Set() };
+    var a = { nombre: f.name, tam: f.size, forzados: new Set(), desmarcados: new Set() };
     archivos.push(a);
     f.arrayBuffer().then(function (buf) {
       a.crudo = new Uint8Array(buf);
@@ -544,8 +517,6 @@ $('drop').ondrop = function (e) {
   agregar(Array.prototype.slice.call(e.dataTransfer.files));
 };
 
-try { $('manualTxt').value = localStorage.getItem(CLAVE) || ''; } catch (e) { /* sin storage */ }
-aplicarManuales($('manualTxt').value);
 pintar();
 </script>
 </body>
