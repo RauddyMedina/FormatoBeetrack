@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formato Beetrack</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  /* Una columna angosta: soltar archivo -> ver que cambio -> descargar. */
+  :root {
+    --bg: #eef1f7; --surface: #ffffff; --surface2: #f6f8fc; --border: #d7deeb;
+    --fg: #121826; --muted: #5a6780;
+    --accent: #0b6ea8; --easy: #9a5a00; --paris: #0f7a62; --danger: #b3261e;
+    --easy-bg: #fdf3e3; --paris-bg: #e6f5f0;
+    --radius: 12px;
+    --display: 'Syne', 'Trebuchet MS', sans-serif;
+    --body: 'DM Sans', system-ui, sans-serif;
+    --mono: 'DM Mono', ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #0a1020; --surface: #121a2b; --surface2: #182236; --border: #27354e;
+    --fg: #e7eef9; --muted: #92a2bf;
+    --accent: #45bde8; --easy: #e8a33d; --paris: #46d6a8; --danger: #ff6b6b;
+    --easy-bg: #2a2012; --paris-bg: #10291f;
+    color-scheme: dark;
+  } }
+  :root[data-theme="dark"] {
+    --bg: #0a1020; --surface: #121a2b; --surface2: #182236; --border: #27354e;
+    --fg: #e7eef9; --muted: #92a2bf;
+    --accent: #45bde8; --easy: #e8a33d; --paris: #46d6a8; --danger: #ff6b6b;
+    --easy-bg: #2a2012; --paris-bg: #10291f;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--body); background: var(--bg); color: var(--fg); font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 860px; margin: 0 auto; padding-block: 28px 72px;
+          padding-left: max(16px, env(safe-area-inset-left, 0px));
+          padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+  header { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 24px; }
+  h1 { font-family: var(--display); font-weight: 800; font-size: clamp(26px, 6vw, 36px); letter-spacing: -.02em; text-wrap: balance; }
+  .lead { color: var(--muted); margin-top: 8px; max-width: 62ch; }
+
+  h2 { font-family: var(--display); font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
+  section { margin-bottom: 26px; }
+
+  /* Zona de carga */
+  .drop { border: 2px dashed var(--border); border-radius: var(--radius); background: var(--surface);
+          padding: 30px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--surface2); }
+  .drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .drop strong { display: block; font-weight: 600; margin-bottom: 4px; }
+  .drop span.sub { color: var(--muted); font-size: 13px; }
+  .drop input { display: none; }
+
+  /* Reglas */
+  .reglas { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .regla { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .regla h3 { font-family: var(--mono); font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+  .regla p { font-size: 13px; color: var(--muted); }
+  .regla.e h3 { color: var(--easy); } .regla.p h3 { color: var(--paris); } .regla.t h3 { color: var(--accent); }
+
+  /* Retiros a mano */
+  details.manual { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  details.manual summary { padding: 13px 16px; cursor: pointer; font-weight: 500; font-size: 14px; }
+  details.manual .cuerpo { padding: 0 16px 16px; }
+  textarea { width: 100%; min-height: 84px; font-family: var(--mono); font-size: 13px; resize: vertical;
+             background: var(--surface2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; font-weight: 400; }
+
+  /* Tarjeta por archivo */
+  .archivo { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .fila { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .fila > .crece { flex: 1 1 240px; min-width: 0; }
+  .nombre { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { font-family: var(--mono); font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); }
+  .chip.e { color: var(--easy); background: var(--easy-bg); border-color: transparent; }
+  .chip.p { color: var(--paris); background: var(--paris-bg); border-color: transparent; }
+  .chip.err { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+  .cambios { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .cambios li { list-style: none; font-family: var(--mono); font-size: 12.5px; padding: 3px 0; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .cambios li b { color: var(--fg); font-weight: 500; }
+  .cambios .flecha { color: var(--accent); }
+  .mas { font-size: 12px; }
+
+  .retiros { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .retiros label { display: flex; gap: 9px; align-items: flex-start; padding: 5px 0; font-size: 13px; cursor: pointer; }
+  .retiros input { margin-top: 3px; accent-color: var(--paris); flex: none; }
+  .retiros .guia { font-family: var(--mono); flex: none; }
+  .retiros .prod { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  .mini { display: flex; gap: 8px; margin: 6px 0 2px; }
+
+  button { font-family: var(--body); font-size: 14px; font-weight: 500; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--surface2); color: var(--fg); padding: 9px 14px; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.principal { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.chica { font-size: 12px; padding: 4px 9px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .quitar { background: transparent; border-color: transparent; color: var(--muted); padding: 4px 8px; }
+  .quitar:hover { color: var(--danger); border-color: var(--danger); }
+
+  footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  footer code { font-family: var(--mono); }
+  .vacio { color: var(--muted); font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Formato Beetrack</h1>
+    <p class="lead">Arregla el importable que baja de hela antes de subirlo: deja parejo el <b>Origen</b> de Easy,
+      marca <b>Solo recogida</b> en los retiros de Paris y entrega las 38 columnas en formato texto.</p>
+  </header>
+
+  <section>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Elegir archivos de Beetrack">
+      <strong>Arrastrá acá los <span class="nombre">beetrack-&hellip;.xlsx</span></strong>
+      <span class="sub">o tocá para elegirlos &middot; se procesan en tu equipo, no se sube nada</span>
+      <input type="file" id="input" accept=".xlsx" multiple>
+    </div>
+  </section>
+
+  <section>
+    <h2>Qué le hace al archivo</h2>
+    <div class="reglas">
+      <div class="regla e">
+        <h3>Origen &rarr; CD Easy</h3>
+        <p>Todo origen de Easy (<i>CD Easy Tienda</i>, <i>CD Easy Opl</i>, <i>CD Easy Cd</i>) queda como <i>CD Easy</i>. Paris no se toca.</p>
+      </div>
+      <div class="regla p">
+        <h3>MODO &rarr; Solo recogida</h3>
+        <p>Sólo en los retiros de Paris. Se reconocen por la marca <i>RETORNO</i> del código o por el nombre del producto; los que falten se marcan a mano.</p>
+      </div>
+      <div class="regla t">
+        <h3>Todo en texto</h3>
+        <p>Las celdas salen con formato Texto, incluidas CANTIDAD y Bultos, que hela manda como número.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <details class="manual" id="manual">
+      <summary>Retiros de Paris por número <span class="hint" id="manualCuenta"></span></summary>
+      <div class="cuerpo">
+        <textarea id="manualTxt" placeholder="84094321&#10;91717405" aria-label="Números de retiro de Paris"></textarea>
+        <p class="hint">Uno por línea o separados por coma. Sirve para los retiros que el archivo no delata.
+          Queda guardado en este navegador y se aplica a todos los archivos.</p>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <h2>Archivos</h2>
+    <div id="lista"><p class="vacio">Todavía no cargaste ninguno.</p></div>
+  </section>
+
+  <footer>
+    <p>El archivo se reescribe celda por celda sobre el <code>.xlsx</code> original: no pasa por un generador de Excel,
+      así que las 38 columnas, sus nombres y el resto de los datos salen tal cual los mandó hela.</p>
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- Reglas ---------- */
+var ORIGEN_EASY = 'CD Easy';
+var MODO_RETIRO = 'Solo recogida';
+// Paris marca sus retiros con RETORNO en la columna del SKU (la misma senal que usan las
+// alertas de bodega). Cuando el retiro lo cargamos nosotros, el producto viaja como
+// 'CAMBIO <producto> (<entrega>)'.
+var RE_RETIRO = /\b(retorno|retiro|devoluci|recogid)/i;
+var RE_CAMBIO_REF = /\bcambio\b.*\(\s*\d{6,}\s*\)\s*$/i;
+
+var norm = function (v) {
+  return String(v == null ? '' : v).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\*/g, '').trim().toLowerCase();
+};
+var esc = function (s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
+var esEasy = function (o) { return /easy/i.test(norm(o)); };
+var esParis = function (cli, ori) { return /paris/i.test(norm(cli) + ' ' + norm(ori)); };
+
+/* ---------- Estado ---------- */
+var archivos = [];
+var manuales = new Set();
+
+/* ---------- Lectura ---------- */
+var COLS = ['numero guia', 'nombre item', 'codigo item', 'modo', 'cliente', 'origen'];
+
+function analizar(datos) {
+  var wb = XLSX.read(datos, { type: 'array' });
+  var ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws || !ws['!ref']) throw new Error('la hoja viene vacía');
+  var rango = XLSX.utils.decode_range(ws['!ref']);
+  var filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  var cab = (filas[0] || []).map(norm);
+  var col = {};
+  COLS.forEach(function (c) { col[c] = cab.indexOf(c); });
+  var faltan = COLS.filter(function (c) { return col[c] === -1 && c !== 'codigo item'; });
+  if (faltan.length) throw new Error('no parece el importable de Beetrack: falta la columna ' + faltan.join(', '));
+
+  var ref = function (f, c) { return XLSX.utils.encode_cell({ r: rango.s.r + f, c: rango.s.c + c }); };
+  var dato = function (fila, c) {
+    return col[c] === -1 ? '' : String(fila[col[c]] == null ? '' : fila[col[c]]).trim();
+  };
+
+  var out = { total: 0, origen: [], paris: [] };
+  for (var i = 1; i < filas.length; i++) {
+    var fila = filas[i];
+    if (!fila || fila.every(function (v) { return String(v == null ? '' : v).trim() === ''; })) continue;
+    out.total++;
+    var origen = dato(fila, 'origen'), cliente = dato(fila, 'cliente');
+    if (esEasy(origen) && origen !== ORIGEN_EASY) {
+      out.origen.push({ fila: i, de: origen, celda: ref(i, col['origen']) });
+    }
+    if (esParis(cliente, origen)) {
+      var prod = dato(fila, 'nombre item');
+      out.paris.push({
+        fila: i, guia: dato(fila, 'numero guia'), prod: prod, modo: dato(fila, 'modo'),
+        celda: ref(i, col['modo']),
+        auto: norm(dato(fila, 'codigo item')) === 'retorno' || RE_RETIRO.test(prod) || RE_CAMBIO_REF.test(prod)
+      });
+    }
+  }
+  return out;
+}
+
+function marcado(a, r) {
+  return (r.auto || manuales.has(r.guia)) && !a.desmarcados.has(r.guia + '|' + r.fila);
+}
+
+function cambiosDe(a) {
+  var u = {};
+  a.datos.origen.forEach(function (o) { u[o.celda] = ORIGEN_EASY; });
+  var retiros = a.datos.paris.filter(function (r) { return marcado(a, r); });
+  retiros.forEach(function (r) { if (r.modo !== MODO_RETIRO) u[r.celda] = MODO_RETIRO; });
+  return { updates: u, retiros: retiros };
+}
+
+/* ---------- Escritura: se reescribe el XML de la hoja ---------- */
+function rutaHoja(zip) {
+  var f = zip.file('xl/_rels/workbook.xml.rels');
+  var fallback = function () {
+    var ps = ['xl/worksheets/sheet1.xml', 'xl/worksheets/Sheet1.xml'];
+    for (var i = 0; i < ps.length; i++) if (zip.file(ps[i])) return ps[i];
+    return null;
+  };
+  if (!f) return Promise.resolve(fallback());
+  return f.async('string').then(function (rels) {
+    var tags = rels.match(/<Relationship\s[^>]+>/g) || [];
+    for (var i = 0; i < tags.length; i++) {
+      if (tags[i].indexOf('/worksheet') === -1) continue;
+      var t = (tags[i].match(/Target="([^"]+)"/) || [])[1];
+      if (t) return t.charAt(0) === '/' ? t.slice(1) : 'xl/' + t;
+    }
+    return fallback();
+  });
+}
+
+// Agrega a styles.xml un formato '@' (Texto) y devuelve el indice de ese estilo.
+// ponytail: si el archivo trajera estilos propios (negritas, colores), forzar este estilo
+// en todas las celdas los pierde. hela manda cellXfs count="1" sin formatos, asi que no
+// pasa; el upgrade seria clonar cada xf con numFmtId="164" y mapear los indices.
+function estiloTexto(xml) {
+  var FMT = '<numFmt numFmtId="164" formatCode="@"/>';
+  if (xml.indexOf('formatCode="@"') === -1) {
+    if (/<numFmts[^>]*\/>/.test(xml)) xml = xml.replace(/<numFmts[^>]*\/>/, '<numFmts count="1">' + FMT + '</numFmts>');
+    else if (/<numFmts[^>]*>/.test(xml)) xml = xml.replace(/(<numFmts[^>]*>)/, '$1' + FMT);
+    else xml = xml.replace(/<fonts/, '<numFmts count="1">' + FMT + '</numFmts><fonts');
+  }
+  var m = xml.match(/<cellXfs[^>]*count="(\d+)"[^>]*>([\s\S]*?)<\/cellXfs>/);
+  if (!m) return { xml: xml, estilo: '0' };
+  var idx = parseInt(m[1], 10) || 0;
+  var xf = '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1" xfId="0"/>';
+  return {
+    xml: xml.replace(m[0], '<cellXfs count="' + (idx + 1) + '">' + m[2] + xf + '</cellXfs>'),
+    estilo: String(idx)
+  };
+}
+
+var masAlla = function (a, b) { return a.length > b.length || (a.length === b.length && a > b); };
+
+function insertar(xml, celda, estilo, valor) {
+  var col = celda.match(/[A-Z]+/)[0], fila = celda.match(/\d+/)[0];
+  var nueva = '<c r="' + celda + '" s="' + estilo + '" t="inlineStr"><is><t xml:space="preserve">'
+            + esc(valor) + '</t></is></c>';
+  var m = xml.match(new RegExp('<row[^>]*\\br="' + fila + '"[^>]*>([\\s\\S]*?)</row>'));
+  if (!m) return xml;
+  var abre = m[0].slice(0, m[0].indexOf('>') + 1), dentro = m[1];
+  var at = dentro.length, cm, rx = /<c\s[^>]*?r="([A-Z]+)\d+"/g;
+  while ((cm = rx.exec(dentro)) !== null) if (masAlla(cm[1], col)) { at = cm.index; break; }
+  return xml.replace(m[0], abre + dentro.slice(0, at) + nueva + dentro.slice(at) + '</row>');
+}
+
+// Una sola pasada: aplica los cambios y deja CADA celda como texto con el estilo '@'.
+function reescribir(xml, updates, estilo) {
+  var vistas = {};
+  xml = xml.replace(/<c\s([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g, function (todo, attrs, dentro) {
+    var celda = (attrs.match(/\br="([A-Z]+\d+)"/) || [])[1];
+    if (!celda) return todo;
+    vistas[celda] = 1;
+    var tipo = (attrs.match(/\bt="(\w+)"/) || [])[1] || 'n';
+    if (Object.prototype.hasOwnProperty.call(updates, celda)) {
+      return '<c r="' + celda + '" s="' + estilo + '" t="inlineStr"><is><t xml:space="preserve">'
+           + esc(updates[celda]) + '</t></is></c>';
+    }
+    // Formulas, cadenas compartidas y errores: ya son texto o no hay que romperlas.
+    if (tipo === 's' || tipo === 'e' || /<f[\s>\/]/.test(dentro || '')) {
+      return todo.replace(/<c\s([^>]*?)(\/?>)/, function (_, a, cierre) {
+        return '<c ' + a.replace(/\bs="\d+"\s*/, '') + ' s="' + estilo + '"' + cierre;
+      });
+    }
+    var txt = '';
+    if (tipo === 'inlineStr' || tipo === 'str') {
+      txt = ((dentro || '').match(/<t[^>]*>([\s\S]*?)<\/t>/g) || []).map(function (t) {
+        return t.replace(/^<t[^>]*>/, '').replace(/<\/t>$/, '');
+      }).join('');
+    } else {
+      txt = ((dentro || '').match(/<v>([\s\S]*?)<\/v>/) || ['', ''])[1];
+    }
+    return '<c r="' + celda + '" s="' + estilo + '" t="inlineStr">'
+         + (txt === '' ? '' : '<is><t xml:space="preserve">' + txt + '</t></is>') + '</c>';
+  });
+  // La columna MODO viene SIN celda en las filas que no la traen: hay que crearla.
+  Object.keys(updates).forEach(function (celda) {
+    if (!vistas[celda]) xml = insertar(xml, celda, estilo, updates[celda]);
+  });
+  // Columnas en formato Texto, para lo que se escriba a mano despues.
+  return xml.replace(/<col\s([^>]*?)(\/?>)/g, function (m, a, c) {
+    return /\bstyle="/.test(a) ? m : '<col ' + a + ' style="' + estilo + '"' + c;
+  });
+}
+
+function procesar(a) {
+  var c = cambiosDe(a), zip, ruta, estilo = '0';
+  return JSZip.loadAsync(a.crudo).then(function (z) {
+    zip = z;
+    return rutaHoja(zip);
+  }).then(function (r) {
+    ruta = r;
+    if (!ruta) throw new Error('no se encontró la hoja dentro del .xlsx');
+    var s = zip.file('xl/styles.xml');
+    return s ? s.async('string') : null;
+  }).then(function (sx) {
+    if (sx) {
+      var r = estiloTexto(sx);
+      zip.file('xl/styles.xml', r.xml);
+      estilo = r.estilo;
+    }
+    return zip.file(ruta).async('string');
+  }).then(function (xml) {
+    zip.file(ruta, reescribir(xml, c.updates, estilo));
+    return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  }).then(function (salida) {
+    a.salida = salida;
+    return a;
+  });
+}
+
+/* ---------- UI ---------- */
+var $ = function (id) { return document.getElementById(id); };
+
+function etiqueta(nombre) {
+  var m = nombre.match(/beetrack-(\d+)-(\d+)-(\d{4})(\d{2})(\d{2})/i);
+  return m ? 'Carga ' + m[1] + ' · ' + m[5] + '-' + m[4] + '-' + m[3] : '';
+}
+
+function descargar(a, boton) {
+  boton.disabled = true;
+  boton.textContent = 'Procesando…';
+  procesar(a).then(function () {
+    var blob = new Blob([a.salida], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = a.nombre.replace(/\.xlsx$/i, '') + '-ok.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    boton.textContent = 'Descargar otra vez';
+    boton.disabled = false;
+  }).catch(function (e) {
+    boton.textContent = 'Falló: ' + e.message;
+    boton.disabled = false;
+  });
+}
+
+function pintar() {
+  var cont = $('lista');
+  if (!archivos.length) { cont.innerHTML = '<p class="vacio">Todavía no cargaste ninguno.</p>'; return; }
+  cont.innerHTML = '';
+  archivos.forEach(function (a, i) {
+    var card = document.createElement('div');
+    card.className = 'archivo';
+
+    if (a.error) {
+      card.innerHTML = '<div class="fila"><div class="crece"><div class="nombre">' + esc(a.nombre) + '</div>'
+        + '<div class="chips"><span class="chip err">' + esc(a.error) + '</span></div></div>'
+        + '<div class="acc"></div></div>';
+    } else {
+      var c = cambiosDe(a);
+      var nOrigen = a.datos.origen.length;
+      var nModo = c.retiros.filter(function (r) { return r.modo !== MODO_RETIRO; }).length;
+      var chips = '<span class="chip">' + a.datos.total + ' filas</span>'
+        + '<span class="chip ' + (nOrigen ? 'e' : '') + '">Origen: ' + nOrigen + '</span>'
+        + '<span class="chip ' + (nModo ? 'p' : '') + '">Solo recogida: ' + nModo + '</span>'
+        + '<span class="chip">todo texto</span>';
+      var muestra = a.datos.origen.slice(0, 5).map(function (o) {
+        return '<li><span>fila ' + (o.fila + 1) + '</span><b>' + esc(o.de) + '</b>'
+             + '<span class="flecha">&rarr;</span><b>' + ORIGEN_EASY + '</b></li>';
+      }).join('');
+      card.innerHTML = '<div class="fila"><div class="crece"><div class="nombre">' + esc(a.nombre) + '</div>'
+        + '<div class="meta">' + esc(etiqueta(a.nombre)) + '</div><div class="chips">' + chips + '</div></div>'
+        + '<div class="acc"></div></div>'
+        + (muestra ? '<ul class="cambios">' + muestra
+            + (nOrigen > 5 ? '<li class="mas">y ' + (nOrigen - 5) + ' más</li>' : '') + '</ul>' : '')
+        + (a.datos.paris.length ? '<div class="retiros"></div>' : '');
+    }
+
+    var acc = card.querySelector('.acc');
+    if (!a.error) {
+      var bajar = document.createElement('button');
+      bajar.className = 'principal';
+      bajar.textContent = 'Descargar corregido';
+      bajar.onclick = function () { descargar(a, bajar); };
+      acc.appendChild(bajar);
+    }
+    var q = document.createElement('button');
+    q.className = 'quitar';
+    q.textContent = 'Quitar';
+    q.onclick = function () { archivos.splice(i, 1); pintar(); };
+    acc.appendChild(q);
+
+    var par = card.querySelector('.retiros');
+    if (par) {
+      var marcados = a.datos.paris.filter(function (r) { return marcado(a, r); }).length;
+      par.innerHTML = '<h2>Paris: ' + a.datos.paris.length + ' filas · ' + marcados + ' como retiro</h2>'
+        + '<div class="mini"><button class="chica" data-todos="1">Marcar todas</button>'
+        + '<button class="chica" data-todos="0">Ninguna</button></div>';
+      par.querySelector('[data-todos="1"]').onclick = function () {
+        a.desmarcados.clear();
+        a.datos.paris.forEach(function (r) { manuales.add(r.guia); });
+        guardarManuales();
+      };
+      par.querySelector('[data-todos="0"]').onclick = function () {
+        a.datos.paris.forEach(function (r) {
+          manuales.delete(r.guia);
+          a.desmarcados.add(r.guia + '|' + r.fila);
+        });
+        guardarManuales();
+      };
+      a.datos.paris.forEach(function (r) {
+        var lab = document.createElement('label');
+        lab.innerHTML = '<input type="checkbox" ' + (marcado(a, r) ? 'checked' : '') + '>'
+          + '<span class="guia">' + esc(r.guia) + '</span>'
+          + '<span class="prod">' + esc(r.prod || '(sin nombre)') + (r.auto ? ' · detectado' : '') + '</span>';
+        lab.querySelector('input').onchange = function (ev) {
+          var k = r.guia + '|' + r.fila;
+          if (ev.target.checked) { manuales.add(r.guia); a.desmarcados.delete(k); }
+          else { manuales.delete(r.guia); a.desmarcados.add(k); }
+          guardarManuales();
+        };
+        par.appendChild(lab);
+      });
+    }
+    cont.appendChild(card);
+  });
+}
+
+/* ---------- Retiros a mano (se recuerdan en este navegador) ---------- */
+var CLAVE = 'formato-beetrack-retiros';
+
+function aplicarManuales(txt) {
+  manuales = new Set(String(txt).split(/[\s,;]+/).map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; }));
+  $('manualCuenta').textContent = manuales.size ? '· ' + manuales.size + ' cargados' : '';
+}
+
+function guardarTxt(txt) {
+  try { localStorage.setItem(CLAVE, txt); } catch (e) { /* sin storage: no se recuerda */ }
+}
+
+function guardarManuales() {
+  var txt = Array.from(manuales).join('\n');
+  $('manualTxt').value = txt;
+  aplicarManuales(txt);
+  guardarTxt(txt);
+  pintar();
+}
+
+$('manualTxt').addEventListener('input', function (e) {
+  aplicarManuales(e.target.value);
+  guardarTxt(e.target.value);
+  archivos.forEach(function (a) { a.desmarcados.clear(); });
+  pintar();
+});
+
+/* ---------- Entrada de archivos ---------- */
+function agregar(lista) {
+  var pendientes = lista.filter(function (f) { return /\.xlsx$/i.test(f.name); });
+  var listos = 0;
+  if (!pendientes.length) return;
+  pendientes.forEach(function (f) {
+    var a = { nombre: f.name, desmarcados: new Set() };
+    archivos.push(a);
+    f.arrayBuffer().then(function (buf) {
+      a.crudo = new Uint8Array(buf);
+      a.datos = analizar(a.crudo);
+    }).catch(function (e) {
+      a.error = e.message || 'no se pudo leer el archivo';
+    }).then(function () {
+      listos++;
+      if (listos === pendientes.length) pintar();
+    });
+  });
+}
+
+$('input').onchange = function (e) {
+  agregar(Array.prototype.slice.call(e.target.files));
+  e.target.value = '';
+};
+$('drop').onclick = function () { $('input').click(); };
+$('drop').onkeydown = function (e) {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('input').click(); }
+};
+$('drop').ondragover = function (e) { e.preventDefault(); $('drop').classList.add('over'); };
+$('drop').ondragleave = function () { $('drop').classList.remove('over'); };
+$('drop').ondrop = function (e) {
+  e.preventDefault();
+  $('drop').classList.remove('over');
+  agregar(Array.prototype.slice.call(e.dataTransfer.files));
+};
+
+try { $('manualTxt').value = localStorage.getItem(CLAVE) || ''; } catch (e) { /* sin storage */ }
+aplicarManuales($('manualTxt').value);
+pintar();
+</script>
+</body>
+</html>
