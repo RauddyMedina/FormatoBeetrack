@@ -7,6 +7,11 @@ Abre la pagina en un navegador real, le entrega un importable de hela, aprieta
   2. MODO: 'Solo recogida' SOLO en los retiros de Paris (y en ninguna otra fila).
   3. Todo el archivo en formato texto (valores str y number_format '@').
   4. Nada mas cambio: mismas filas, mismas columnas, mismos datos.
+  5. El mismo archivo dos veces se agrega una sola vez.
+
+El retiro de Paris del archivo de muestra es la guia 87718446, que en 'BASE DATOS PARIS'
+figura con SKU=RETORNO: en el archivo de hela se reconoce porque su CODIGO ITEM es el
+LINE_ID del retorno (823636999) y no un codigo de despacho (DD0339..., VEV...).
 
     python test_formato_beetrack.py [ruta a un beetrack-*.xlsx]
 """
@@ -24,7 +29,8 @@ AQUI = Path(__file__).resolve().parent
 PAGINA = (AQUI / "index.html").as_uri()
 ORIGINAL = Path(sys.argv[1] if len(sys.argv) > 1
                 else r"C:\Users\Usuario\Downloads\beetrack-14039-0037-20261117.xlsx")
-GUIA_RETIRO = "87724341"          # fila de Paris que el fixture convierte en retiro
+GUIA_REAL = "87718446"            # retiro de Paris que ya trae el archivo de muestra
+GUIA_RETIRO = "87724341"          # entrega que el fixture convierte en retiro
 SKU_RETIRO = "DD033986405"        # su CODIGO ITEM en el archivo real
 
 
@@ -105,8 +111,10 @@ def main() -> int:
                 errores.append(f"fila {i + 1}: Origen quedo en {o!r}")
             if str(base[i][iO] or "").lower().startswith("cd paris") and o != base[i][iO]:
                 errores.append(f"fila {i + 1}: toco un Origen de Paris ({o!r})")
-            if f[iU] not in (None, ""):
-                errores.append(f"fila {i + 1}: MODO quedo en {f[iU]!r} y no hay retiros")
+            esperado = "Solo recogida" if str(f[iGuia]) == GUIA_REAL else None
+            if (f[iU] or None) != esperado:
+                errores.append(f"fila {i + 1} ({f[iGuia]}): MODO quedo en {f[iU]!r} "
+                               f"y se esperaba {esperado!r}")
         notexto = [c for c, t in meta["tipos"].items() if t != "str"]
         if notexto:
             errores.append(f"celdas que no son texto: {notexto[:6]}")
@@ -130,36 +138,39 @@ def main() -> int:
         n1 = len(errores)
         salida2 = descargar(page, con_retorno, tmp / "retorno-ok.xlsx")
         filas2, meta2 = leer(salida2)
-        con_modo = [(i + 1, f[iGuia], f[iU]) for i, f in enumerate(filas2[1:], start=1)
-                    if f[iU] not in (None, "")]
-        if len(con_modo) != 1:
-            errores.append(f"se esperaba 1 fila con MODO y hay {len(con_modo)}: {con_modo}")
-        else:
-            fila, guia, modo = con_modo[0]
-            if modo != "Solo recogida":
-                errores.append(f"MODO quedo en {modo!r}")
-            if str(guia) != GUIA_RETIRO:
-                errores.append(f"el MODO cayo en la guia {guia!r} y no en {GUIA_RETIRO}")
+        con_modo = sorted((str(f[iGuia]), f[iU]) for f in filas2[1:] if f[iU] not in (None, ""))
+        esperado2 = sorted([(GUIA_REAL, "Solo recogida"), (GUIA_RETIRO, "Solo recogida")])
+        if con_modo != esperado2:
+            errores.append(f"con RETORNO explicito se esperaba {esperado2} y salio {con_modo}")
         if [c for c, t in meta2["tipos"].items() if t != "str"]:
             errores.append("caso 2: hay celdas que no son texto")
         print(f"caso 2 (retiro de Paris): {len(errores) - n1} problemas")
 
-        # --- Caso 3: el numero pegado a mano marca el retiro -----------------------
+        # --- Caso 3: el mismo archivo dos veces entra una sola vez -----------------
         n2 = len(errores)
         page.goto(PAGINA)
         page.wait_for_function("() => window.XLSX && window.JSZip")
-        page.evaluate("document.getElementById('manual').open = true")
-        page.fill("#manualTxt", "87723382")
         page.set_input_files("#input", str(ORIGINAL))
         page.wait_for_selector(".archivo")
+        page.set_input_files("#input", str(ORIGINAL))
+        page.wait_for_selector("#aviso:not(:empty)")
+        tarjetas = page.locator(".archivo").count()
+        if tarjetas != 1:
+            errores.append(f"el archivo repetido se agrego igual: {tarjetas} tarjetas")
+
+        # --- Caso 4: destildar el retiro le saca el MODO ---------------------------
+        # dispatch_event y no uncheck(): la descarga anterior deja a Edge esperando una
+        # navegacion que nunca termina y uncheck() se queda colgado en esa espera.
+        page.locator(".retiros input:checked").first.dispatch_event("click")
+        page.wait_for_function("() => !document.querySelector('.retiros input:checked')")
         with page.expect_download() as info:
             page.click("button.principal")
-        info.value.save_as(tmp / "manual-ok.xlsx")
-        filas3, _ = leer(tmp / "manual-ok.xlsx")
+        info.value.save_as(tmp / "destildado-ok.xlsx")
+        filas3, _ = leer(tmp / "destildado-ok.xlsx")
         con_modo3 = [(f[iGuia], f[iU]) for f in filas3[1:] if f[iU] not in (None, "")]
-        if con_modo3 != [("87723382", "Solo recogida")]:
-            errores.append(f"a mano: se esperaba solo 87723382 y salio {con_modo3}")
-        print(f"caso 3 (numero a mano): {len(errores) - n2} problemas")
+        if con_modo3:
+            errores.append(f"se destildo el retiro y el MODO quedo igual: {con_modo3}")
+        print(f"casos 3 y 4 (duplicado y destildar): {len(errores) - n2} problemas")
 
         if consola:
             errores.append(f"errores de consola: {consola[:3]}")
